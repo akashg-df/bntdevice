@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'package:dfdevicewebview/login.dart';
 
+import 'package:dfdevicewebview/service/auth_service.dart';
 import 'package:dfdevicewebview/typography.dart';
 import 'package:dfdevicewebview/webview/admin_twx_dashboard.dart';
 import 'package:dfdevicewebview/webview/customer_view.dart';
@@ -20,6 +22,8 @@ class DrawerUtils extends StatefulWidget {
 
 class _DrawerUtilsState extends State<DrawerUtils> {
   bool loading = false;
+  final AuthService _authService = AuthService();
+
 
   @override
   void initState() {
@@ -77,25 +81,10 @@ class _DrawerUtilsState extends State<DrawerUtils> {
                 ),
 
 
-                HoverDrawerTile(
-                  icon: CupertinoIcons.settings_solid, // Profile Settings
-                  label: "Dashboard",
-                  onTap: () {
-                    widget.scaffoldKey.currentState!.closeDrawer();
-                    Navigator.pushReplacement(
-                      context,
-                      MaterialPageRoute(
-                        builder: (BuildContext context) => const CustomerView(),
-                      ),
-                    );
-                  },
-                ),
-                const Divider(indent: 8.0, endIndent: 8.0),
-                const SizedBox(height: 10),
 
                 HoverDrawerTile(
                   icon: CupertinoIcons.home, // Home
-                  label: "Device Management",
+                  label: "Dashboard",
                   onTap: () {
                     widget.scaffoldKey.currentState!.closeDrawer();
                     Navigator.pushReplacement(
@@ -109,6 +98,31 @@ class _DrawerUtilsState extends State<DrawerUtils> {
                 ),
                 const Divider(indent: 8.0, endIndent: 8.0),
                 const SizedBox(height: 10),
+                HoverDrawerTile(
+                  icon: CupertinoIcons.settings_solid, // Profile Settings
+                  label: "Device Management",
+                  onTap: () {
+                    widget.scaffoldKey.currentState!.closeDrawer();
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (BuildContext context) => CustomerView(),
+                      ),
+                    );
+                  },
+                ),
+                const Divider(indent: 8.0, endIndent: 8.0),
+                const SizedBox(height: 10),
+
+                HoverDrawerTile(
+                  icon: Icons.logo_dev, // Profile Settings
+                  label: "logout",
+                  onTap: () {
+                    logout();
+                  },
+                ),
+                const Divider(indent: 8.0, endIndent: 8.0),
+                const SizedBox(height: 10),
 
               ],
             ),
@@ -116,5 +130,38 @@ class _DrawerUtilsState extends State<DrawerUtils> {
         ),
       ),
     );
+  }
+
+  // New method to handle logout
+  logout() async { // [new]
+    setState(() { // [new]
+      loading = true; // [new]
+    }); // [new]
+
+    try { // [new]
+      await _authService.logout(); // [new]
+
+      // Close the drawer before navigating
+      widget.scaffoldKey.currentState!.closeDrawer(); // [new]
+
+      // Navigate to the CustomerView screen (assuming this is the login/post-logout screen)
+      if (mounted) { // [new]
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (BuildContext context) => LoginView(),
+          ),
+              (Route<dynamic> route) => false,
+        );
+      }
+    } catch (e) {
+      print("Error during logout: $e");
+    } finally {
+      if (mounted) {
+        setState(() {
+          loading = false;
+        });
+      }
+    }
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:dfdevicewebview/component/add_device_comp.dart';
 import 'package:dfdevicewebview/constant.dart';
+import 'package:dfdevicewebview/model/device_selection.dart';
 import 'package:dfdevicewebview/responsive.dart';
 import 'package:dfdevicewebview/service/api_client.dart';
 import 'package:dfdevicewebview/service/auth_service.dart';
@@ -11,20 +12,15 @@ import 'package:dfdevicewebview/utli/loader_utils.dart';
 import 'package:dfdevicewebview/widget/text_widget.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:dfdevicewebview/model/device_data_manager.dart'; // <--- ADDED IMPORT
-
-// New class to hold device data and its selection state
-class DeviceSelection {
-  final Map<String, dynamic> device;
-  bool isSelected;
-
-  DeviceSelection({required this.device, this.isSelected = false});
-}
+import 'package:dfdevicewebview/model/device_data_manager.dart';
 
 class CustomerView extends StatefulWidget {
   final String? userEmail;
   final String? userPass;
-  const CustomerView({super.key, this.userEmail, this.userPass});
+  bool? isSelected;
+  final Map<String, dynamic>? device;
+
+  CustomerView({super.key, this.userEmail, this.userPass, this.isSelected = false, this.device,});
 
 
   @override
@@ -35,238 +31,36 @@ class _CustomerViewState extends State<CustomerView> {
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  bool loading = false;
+  bool loading = true;
   late List<bool> isExpandedList;
+  Timer? _timer;
+  String? apiUrl;
 
   final ApiClient _apiClient = ApiClient();
   final AuthService _authService = AuthService();
   List<DeviceSelection> homeData = [];
   List<Map<String, dynamic>> displayedDevices = [];
+  Map<String, String> homeNames = {};
+  final Map<String, Timer> _deviceTimers = {};
+  final Map<String, bool> deviceLoadingStates = {};
 
-  Timer? _timer;
+
+
 
 
   @override
   void initState() {
     super.initState();
-    _fetchData();
-    _startPeriodicLogin();
+    _performLoginAndRefresh().then((_) {
+      _startPeriodicLogin();
+    });
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    _deviceTimers.forEach((key, timer) => timer.cancel());
     super.dispose();
-  }
-
-  Future<void> _performLoginAndRefresh() async {
-    // Always use hardcoded credentials
-    const email = "testing23@mailinator.com";
-    const password = "Qwerty@123";
-
-    bool success = await _authService.loginUser(email, password);
-    if (success) {
-      print("✅ Login successful, fetching data...");
-      await _fetchData();
-    } else {
-      print("❌ Login failed.");
-    }
-  }
-
-  Future<void> _startPeriodicLogin() async {
-    _timer = Timer.periodic(const Duration(minutes: 1), (Timer t) async {
-      await _performLoginAndRefresh();
-    });
-  }
-
-  Future<void> _handleManualRefresh() async {
-    _timer?.cancel();
-    await _performLoginAndRefresh();
-    _startPeriodicLogin();
-  }
-
-
-  Future<void> _fetchData() async {
-    if (!mounted) return;
-
-    setState(() {
-      loading = true;
-      homeData = [];
-      isExpandedList = [];
-      displayedDevices = [];
-    });
-
-    final Set<String> processedDeviceIds = {};
-    final List<DeviceSelection> fetchedHomeData = [];
-
-    // 1. Load locally saved devices from AdminTwxDashboard
-    try {
-      final localDevices = await DeviceDataManager.loadDevices(); // <--- ADDED 'await'
-      for (var device in localDevices) {
-        // Assuming the Device model has a toJson() method or similar
-        // to convert it to a Map<String, dynamic>.
-        final Map<String, dynamic> deviceMap = device.toJson();
-
-        // 💡 FIX APPLIED HERE: Added check for 'mac' key, which stores the device ID/MAC from AdminTwxDashboard.
-        final deviceId = deviceMap['deviceId'] ?? deviceMap['deviceid'] ?? deviceMap['mac'] ?? 'unknown';
-
-        if (deviceId != 'unknown' && processedDeviceIds.add(deviceId)) {
-          print("💾 Adding local device: $deviceId");
-          fetchedHomeData.add(DeviceSelection(device: {
-            "devicename": deviceMap['deviceName'] ?? deviceMap['name'] ?? deviceId,
-            "homeid": deviceMap['homeId'] ?? 'Local',
-            "roomid": deviceMap['roomId']?.toString() ?? 'N/A',
-            "deviceId": deviceId,
-          }));
-        }
-      }
-    } catch (e) {
-      print("❌ Error loading local devices: $e");
-    }
-
-    try {
-      print("🔄 Fetching homes...");
-      final homesResponse = await _apiClient.get(
-          'https://overtureiot.broan-nutone.com/overturev2/api/v1/ciaq/user/getallhomesandUserInfo');
-
-      if (!mounted) return;
-
-      if (homesResponse is List) {
-        print("✅ Homes fetched: ${homesResponse.length}");
-        for (var home in homesResponse) {
-          final homeId = home['homeId'];
-          print("➡️ Home ID: $homeId");
-
-          final devicesResponse = await _apiClient.get(
-              'https://overtureiot.broan-nutone.com/overturev2/api/v1/ciaq/user/allDevicesForMyHome',
-              customHeaders: {'home_id': homeId});
-
-          if (!mounted) return;
-
-          if (devicesResponse is List) {
-            print("   📦 Devices found: ${devicesResponse.length}");
-            for (var device in devicesResponse) {
-              final deviceId = device['deviceId'];
-
-              // Check against processedDeviceIds to avoid duplicates from local storage
-              if (processedDeviceIds.add(deviceId)) {
-                print("   ➡️ Device ID: $deviceId (New/API)");
-                fetchedHomeData.add(DeviceSelection(device: {
-                  "devicename": deviceId,
-                  "homeid": homeId,
-                  "roomid": device['roomId'].toString(),
-                  "deviceId": deviceId,
-                }));
-              } else {
-                print("   ➡️ Device ID: $deviceId (Skipping, already added from local list)");
-              }
-            }
-          }
-        }
-      }
-
-      // Add hardcoded devices, also checking against the processed list
-      for (var device in hardcodedDevices) {
-        final deviceId = device["deviceid"]!;
-        if (processedDeviceIds.add(deviceId)) {
-          print("⭐ Adding hardcoded device: ${device["deviceid"]}");
-          fetchedHomeData.add(DeviceSelection(device: {
-            "devicename": device["name"],
-            "homeid": "Manual",
-            "roomid": "N/A",
-            "deviceId": deviceId,
-          }));
-        }
-      }
-
-    } catch (e) {
-      print("❌ Error fetching data: $e");
-    } finally {
-      if (mounted) {
-        // Ensure isExpandedList is sized correctly for the new homeData
-        setState(() {
-          homeData = List.from(fetchedHomeData);
-          isExpandedList = List.generate(homeData.length, (index) => false);
-          loading = false;
-        });
-      }
-      print("✅ Final homeData count: ${homeData.length}");
-    }
-  }
-
-  Future<void> _onDeviceSelected(DeviceSelection selectedDevice, bool isSelected) async {
-    setState(() {
-      selectedDevice.isSelected = isSelected;
-    });
-
-    if (isSelected) {
-      setState(() {
-        loading = true;
-      });
-
-      final deviceId = selectedDevice.device['deviceId'];
-      final homeId = selectedDevice.device['homeid'];
-      // final isLocalDevice = homeId == 'Local'; // Not needed for the fix
-
-      // ✅ FIX: ALWAYS set the home_id header. This resolves the 400 error.
-      final Map<String, String>? headers = {'home_id': homeId};
-
-      try {
-        // Check if device is a locally added hardcoded device (homeid='Manual')
-        final isManualHardcoded = homeId == 'Manual';
-
-        // Mock data for hardcoded devices as API calls will fail for them
-        Map<String, dynamic> sensorDataResponse;
-
-        // ⚠️ WARNING: The 'if (isManualHardcoded)' mock data block has been removed.
-        // This means an API call will be attempted for devices with homeId='Manual'.
-        // This API call is expected to fail with a 404 or other error,
-        // which will be caught in the 'catch' block.
-        sensorDataResponse = await _apiClient.get(
-            'https://overtureiot.broan-nutone.com/overturev2/api/v1/ciaq/thingworx/user/device/$deviceId',
-            customHeaders: headers);
-
-        if (!mounted) return;
-
-        final deviceDetails = sensorDataResponse['deviceDetailsDTO'];
-        final isConnected = deviceDetails['isConnected'];
-        final deviceName = selectedDevice.device['devicename'];
-
-        final updatedDevice = {
-          "devicename": deviceName,
-          "homeid": homeId,
-          "roomid": selectedDevice.device['roomid'],
-          "status": isConnected ? "All devices online" : "1 device online",
-          "statusColor": isConnected ? Colors.green : Colors.orange,
-          "iaqindex": deviceDetails['iaqindex']?.toString() ?? 'N/A',
-          "temperature": deviceDetails['temperature']?.toString() ?? 'N/A',
-          "co2": deviceDetails['co2']?.toString() ?? 'N/A',
-          "tvoc": deviceDetails['tvoc']?.toString() ?? 'N/A',
-          "pm2_5": deviceDetails['pm2_5']?.toString() ?? 'N/A',
-          "humidity": deviceDetails['humidity']?.toString() ?? 'N/A',
-          "deviceId": deviceId,
-        };
-
-        setState(() {
-          displayedDevices.add(updatedDevice);
-        });
-
-      } catch (e) {
-        // This catch block will now handle the API error for 'Manual' devices
-        // as well as any legitimate network errors. The device will be marked as offline
-        // or simply not displayed depending on how you handle this error state.
-        print("❌ Error fetching sensor data for $deviceId: $e");
-      } finally {
-        setState(() {
-          loading = false;
-        });
-      }
-    } else {
-      // Remove the device from the displayed list if it's deselected
-      setState(() {
-        displayedDevices.removeWhere((device) => device['deviceId'] == selectedDevice.device['deviceId']);
-      });
-    }
   }
 
 
@@ -350,7 +144,7 @@ class _CustomerViewState extends State<CustomerView> {
           onPressed: _handleManualRefresh,
           tooltip: 'Refresh Data',
         ),
-        popBttnActionBar(),
+        //popBttnActionBar(),
         const SizedBox(width: 10,)
       ],
     );
@@ -374,6 +168,7 @@ class _CustomerViewState extends State<CustomerView> {
         Expanded(
           child: SingleChildScrollView(
             child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 buildMainContent(),
@@ -387,24 +182,28 @@ class _CustomerViewState extends State<CustomerView> {
   }
 
   Widget buildMainContent() {
-      if (displayedDevices.isEmpty) {
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.end, // 👈 Push to bottom
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          AddDeviceComp().emptyList(),
-          const SizedBox(height: 30), // optional spacing from bottom
-        ],
+    if (displayedDevices.isEmpty) {
+      return SizedBox(
+        height: MediaQuery.of(context).size.height * 0.7, // adjust based on header/footer
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AddDeviceComp().emptyList(),
+              const SizedBox(height: 30),
+            ],
+          ),
+        ),
       );
     }
     return buildHomeCards();
   }
 
+  // buildDeviceSelector with home name grouping
   Widget _buildDeviceSelector() {
     final width = MediaQuery.of(context).size.width;
     final isMobile = width < 600;
-
-    // The content of the device selector (the list)
     final deviceListContent = ListView.builder(
       shrinkWrap: true,
       physics: const BouncingScrollPhysics(),
@@ -454,9 +253,8 @@ class _CustomerViewState extends State<CustomerView> {
                 color: Theme.of(context).primaryColor, // Use your app's primary color
               ),
             ),
-            children: <Widget>[
+            children:[
               const Divider(height: 1, thickness: 1, color: Colors.black12), // Visual separator
-              // Wrap the list in a padding or container for the interior padding
               Padding(
                 padding: const EdgeInsets.all(10), // The original padding you had
                 child: deviceListContent,
@@ -551,19 +349,24 @@ class _CustomerViewState extends State<CustomerView> {
                   GestureDetector(
                     onTap: () {
                       setState(() {
-                        isExpandedList[index] = !isExpandedList[index];
+                        // isExpandedList is sized for homeData, but used here for displayedDevices.
+                        // This index mapping is risky if the two lists don't align.
+                        // Assuming the index aligns for simplicity in this context.
+                        if (index < isExpandedList.length) {
+                          isExpandedList[index] = !isExpandedList[index];
+                        }
                       });
                     },
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         TextWidget(text: "More Info", fontWeight: semiBold, fontsize: 14),
-                        Icon(isExpandedList[index] ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, size: 24, color: Colors.black54),
+                        Icon(index < isExpandedList.length && isExpandedList[index] ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down, size: 24, color: Colors.black54),
                       ],
                     ),
                   ),
 
-                  if (isExpandedList[index])
+                  if (index < isExpandedList.length && isExpandedList[index])
                     Padding(
                       padding: const EdgeInsets.only(top: 10.0),
                       child: Column(
@@ -672,5 +475,232 @@ class _CustomerViewState extends State<CustomerView> {
         ),
       ],
     );
+  }
+
+  //Function
+  Future<void> _startPeriodicLogin() async {
+    _timer?.cancel();
+
+    _timer = Timer.periodic(const Duration(minutes: 1), (Timer t) async {
+      await _performLoginAndRefresh();
+    });
+  }
+
+  Future<void> _handleManualRefresh() async {
+    _timer?.cancel();
+    await _performLoginAndRefresh();
+    _startPeriodicLogin();
+  }
+
+
+  // API
+  Future<void> _performLoginAndRefresh() async {
+    // Always use hardcoded credentials
+    const email = "testing23@mailinator.com";
+    const password = "Qwerty@123";
+
+    bool success = await _authService.loginUser(email, password);
+    if (success) {
+      print("✅ Login successful, fetching data...");
+      // This fetch uses the new, valid token immediately
+      await _fetchData();
+    } else {
+      print("❌ Login failed.");
+      // 💡 FIX: Ensure loading state is turned off on failure.
+      if (mounted) {
+        setState(() {
+          loading = false;
+        });
+      }
+    }
+  }
+
+  // NEW: Function to fetch data for a single device without triggering the main screen loader
+  Future<void> _fetchAndDisplayData(DeviceSelection selectedDevice) async {
+    if (!mounted) return;
+
+    final rawDeviceId = selectedDevice.device['deviceId'];
+    final deviceId = (rawDeviceId is String) ? rawDeviceId : '';
+    final homeId = selectedDevice.device['homeid'];
+
+    if (deviceId.isEmpty) {
+      print("❌ Cannot fetch sensor data: deviceId is missing or empty.");
+      return;
+    }
+
+    // 🔄 Show loader for this device
+    setState(() {
+      deviceLoadingStates[deviceId] = true;
+    });
+
+    // Determine API URL (using constants defined in your code)
+    String? currentApiUrl;
+    if (anotherHardcodedDevices.any((d) => d['deviceid'] == deviceId)) {
+      currentApiUrl = '$newApiUrl$deviceId';
+    } else {
+      currentApiUrl = '$existingApiUrl$deviceId';
+    }
+
+    final Map<String, String>? headers = {'home_id': homeId};
+
+    try {
+      final sensorDataResponse = await _apiClient.get(
+          currentApiUrl!,
+          customHeaders: headers);
+
+      if (!mounted) return;
+
+      final deviceDetails = sensorDataResponse['deviceDetailsDTO'];
+      final isConnected = deviceDetails['isConnected'];
+      final deviceName = selectedDevice.device['devicename'];
+
+      final updatedDevice = {
+        "devicename": deviceName,
+        "homeid": homeId,
+        "roomid": selectedDevice.device['roomid'],
+        "status": isConnected ? "All devices online" : "1 device online",
+        "statusColor": isConnected ? Colors.green : Colors.orange,
+        "iaqindex": deviceDetails['iaqindex']?.toString() ?? 'N/A',
+        "temperature": deviceDetails['temperature']?.toString() ?? 'N/A',
+        "co2": deviceDetails['co2']?.toString() ?? 'N/A',
+        "tvoc": deviceDetails['tvoc']?.toString() ?? 'N/A',
+        "pm2_5": deviceDetails['pm2_5']?.toString() ?? 'N/A',
+        "humidity": deviceDetails['humidity']?.toString() ?? 'N/A',
+        "deviceId": deviceId,
+      };
+
+      setState(() {
+        // Find the existing device in displayedDevices and update it, or add it if new.
+        final index = displayedDevices.indexWhere((d) => d['deviceId'] == deviceId);
+        if (index != -1) {
+          displayedDevices[index] = updatedDevice;
+        } else {
+          displayedDevices.add(updatedDevice);
+        }
+      });
+
+    } catch (e) {
+      print("❌ Error fetching sensor data for $deviceId: $e");
+      // Optionally update the device's status to indicate failure without a loader
+      if (mounted) {
+        setState(() {
+          final index = displayedDevices.indexWhere((d) => d['deviceId'] == deviceId);
+          if (index != -1) {
+            displayedDevices[index]['status'] = 'Data Error';
+            displayedDevices[index]['statusColor'] = Colors.red;
+          }
+        });
+      }
+    }finally {
+      if (mounted) {
+        setState((){
+          deviceLoadingStates[deviceId] = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _fetchData() async {
+    if (!mounted) return;
+
+    // 1. CLEAR STATE AND STOP ALL TIMERS
+    setState(() {
+      loading = true;
+      homeData = [];
+      isExpandedList = [];
+      displayedDevices = [];
+      homeNames = {};
+      deviceLoadingStates.clear();
+
+    });
+
+    // Stop and clear all individual device timers (Crucial for manual refresh)
+    _deviceTimers.forEach((key, timer) => timer.cancel());
+    _deviceTimers.clear();
+
+    final Set<String> processedDeviceIds = {};
+    final List<DeviceSelection> fetchedHomeData = [];
+
+    // 1. Map home names from the hardcoded lists (unchanged)
+    for (var d in allAvailableDevices) {
+      final homeId = d['homeid']!;
+      final homeName = d['homename']!;
+      homeNames[homeId] = homeName;
+    }
+
+    // 2. Load locally saved devices from AdminTwxDashboard
+    try {
+      final localDevices = await DeviceDataManager.loadDevices();
+
+      for (var device in localDevices) {
+        final Map<String, dynamic> deviceMap = device.toJson();
+        final deviceId = deviceMap['mac'] ?? 'unknown';
+
+        if (deviceId != 'unknown' && processedDeviceIds.add(deviceId)) {
+          print("💾 Adding local device: $deviceId");
+          // FIX: isSelected is set to false (default) to prevent auto-selection
+          fetchedHomeData.add(DeviceSelection(device: {
+            "devicename": deviceMap['name'] ?? deviceId,
+            "homeid": deviceMap['homeId'] ?? 'Local',
+            "roomid": deviceMap['roomId']?.toString() ?? 'N/A',
+            "deviceId": deviceId,
+          }, isSelected: false)); // Devices are NOT automatically selected
+        }
+      }
+    } catch (e) {
+      print("❌ Error loading local devices: $e");
+    }
+
+
+    try {
+      // API call block is now empty (removed)
+    } catch (e) {
+      print("❌ Error fetching data: $e");
+    } finally {
+      if (mounted) {
+        // Update the state with all found devices
+        setState(() {
+          homeData = List.from(fetchedHomeData);
+          isExpandedList = List.generate(homeData.length, (index) => false);
+          loading = false; // Hide main loader
+        });
+
+        // The loop to auto-select/auto-start timers is REMOVED, respecting the "not always selected" requirement.
+      }
+      print("✅ Final homeData count: ${homeData.length}");
+    }
+  }
+
+  Future<void> _onDeviceSelected(DeviceSelection selectedDevice, bool isSelected) async {
+    setState(() {
+      selectedDevice.isSelected = isSelected;
+    });
+
+    final deviceId = selectedDevice.device['deviceId'];
+
+    if (isSelected) {
+      // 1. Fetch data immediately
+      await _fetchAndDisplayData(selectedDevice);
+
+      // 2. Start a 5-second periodic timer for automatic refresh
+      final timer = Timer.periodic(const Duration(seconds: 5), (timer) {
+        _fetchAndDisplayData(selectedDevice);
+      });
+
+      // 3. Store the timer to manage it later
+      _deviceTimers[deviceId] = timer;
+      print("✅ Started 5s timer for device: $deviceId");
+
+    } else {
+      // Stop the 5-second timer
+      _deviceTimers[deviceId]?.cancel();
+      _deviceTimers.remove(deviceId);
+      print("🛑 Stopped 5s timer for device: $deviceId");
+
+      // Remove the device from the displayed list
+      setState(() {
+        displayedDevices.removeWhere((device) => device['deviceId'] == deviceId);
+      });
+    }
   }
 }

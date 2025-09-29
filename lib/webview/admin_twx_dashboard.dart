@@ -22,77 +22,25 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
 
   bool loading = false;
 
+  // List of devices added by the user (saved)
   List<Device> devices = [];
+
+  // List of devices available to be added (for the dropdown)
+  List<Map<String, String>> availableDevicesForAdd = [];
 
   // Controllers for new device
   TextEditingController deviceNameCtrl = TextEditingController();
   TextEditingController deviceCategoryCtrl = TextEditingController();
-  TextEditingController deviceMacCtrl = TextEditingController();
   TextEditingController devicefilter = TextEditingController();
 
   // To hold the selected device from the dropdown
   String? _selectedDevice;
 
+
   @override
   void initState() {
     super.initState();
     _loadDevices();
-  }
-
-  Future<void> _loadDevices() async {
-    setState(() {
-      loading = true;
-    });
-    final loadedDevices = await DeviceDataManager.loadDevices();
-    setState(() {
-      devices = loadedDevices;
-      loading = false;
-    });
-  }
-
-  Future<void> _addDevice() async {
-    // Ensure a device is selected from the dropdown
-    if (_selectedDevice == null || _selectedDevice!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a device.')),
-      );
-      return;
-    }
-
-    // 💡 FIX: Use hardcodedDevicesPart1 to find the correct device details
-    final deviceDetails = hardcodedDevicesPart1.firstWhere(
-            (d) => d['deviceid'] == _selectedDevice,
-        orElse: () => {});
-
-    if (deviceDetails.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selected device not found in list.')),
-      );
-      return;
-    }
-
-    // Correctly create the Device model with all required fields
-    final newDevice = Device(
-      name: deviceDetails['name']!,
-      category: deviceDetails['devicetype']!,
-      mac: deviceDetails['deviceid']!,
-      homeId: deviceDetails['homeid']!,
-      roomId: deviceDetails['roomid']!,
-    );
-
-    setState(() {
-      devices.add(newDevice);
-      deviceNameCtrl.clear();
-      deviceCategoryCtrl.clear();
-      deviceMacCtrl.clear();
-      _selectedDevice = null; // Reset the dropdown selection
-    });
-
-    await DeviceDataManager.saveDevices(devices);
-    Navigator.pop(context); // Close the dialog
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Device added successfully!')),
-    );
   }
 
 
@@ -170,21 +118,11 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
           bottomRight: Radius.circular(8),
         ),
       ),
-      title: InkWell(
-        onTap: (){
-          // Navigator.pushReplacement(
-          //   context,
-          //   MaterialPageRoute(
-          //     builder: (BuildContext context) => const CustomerView(),
-          //   ),
-          // );
-        },
-        child: TextWidget(
-          text: 'DF- Admin',
-          fontWeight: semiBold,
-          fontsize: titleLarge,
-          color: priBg,
-        ),
+      title: TextWidget(
+        text: 'DF- Admin',
+        fontWeight: semiBold,
+        fontsize: titleLarge,
+        color: priBg,
       ),
     );
   }
@@ -231,6 +169,7 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
                               fontsize: 16,
                               color: Colors.black54,
                             ),
+                            const SizedBox(height: 15),
                           ],
                         ),
                       ],
@@ -238,8 +177,9 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
                   ),
                   const Divider(height: 1, color: Color(0xFFE0E0E0)),
                   Expanded(
-                    child: deviceList(width),
+                    child: deviceList(width, height),
                   ),
+                  const SizedBox(height: 80),
                 ],
               ),
             ),
@@ -249,7 +189,7 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
     );
   }
 
-  // UPDATED: This widget is now a dropdown menu
+  // This widget uses availableDevicesForAdd
   Widget deviceNameField() {
     return DropdownButtonFormField<String>(
       value: _selectedDevice,
@@ -260,7 +200,7 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
         hintText: 'Select a device',
         hintStyle: TextStyle(fontSize: bodyMedium, fontWeight: normal),
       ),
-      items: hardcodedDevicesPart1.map((device) {
+      items: availableDevicesForAdd.map((device) {
         return DropdownMenuItem<String>(
           value: device['deviceid'],
           child: Text(
@@ -272,20 +212,23 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
       onChanged: (String? newValue) {
         setState(() {
           _selectedDevice = newValue;
-          final deviceDetails = hardcodedDevicesPart1.firstWhere(
+          // Use the combined list to find device details
+          final deviceDetails = _fullHardcodedDevices.firstWhere(
                   (d) => d['deviceid'] == newValue,
-              orElse: () => {});
+              orElse: () => <String, String>{}); // FIX: empty Map fallback
           if (deviceDetails.isNotEmpty) {
             deviceNameCtrl.text = deviceDetails['name']!;
             deviceCategoryCtrl.text = deviceDetails['devicetype']!;
-            deviceMacCtrl.text = deviceDetails['deviceid']!;
+          } else {
+            // Should not happen if item comes from availableDevicesForAdd, but good practice
+            deviceNameCtrl.clear();
+            deviceCategoryCtrl.clear();
           }
         });
       },
       validator: (value) => value == null ? 'Please select a device' : null,
     );
   }
-
 
   Widget deviceCategoryField() {
     return TextFormField(
@@ -303,40 +246,12 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
     );
   }
 
-  Widget deviceMacField() {
-    return TextFormField(
-      controller: deviceMacCtrl,
-      readOnly: true, // Make it read-only
-      textAlignVertical: TextAlignVertical.center,
-      style: const TextStyle(fontSize: bodyMedium, fontWeight: normal),
-      decoration: const InputDecoration(
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(12)),
-        ),
-        hintText: 'Device MAC will be auto-filled',
-        hintStyle: TextStyle(fontSize: bodyMedium, fontWeight: normal),
-      ),
-    );
-  }
-
   // Device List
-  Widget deviceList(width) {
-    // Convert hardcodedDevices (Map) -> Device objects
-    final hardcodedAsDevices = hardcodedDevices.map((d) => Device(
-      name: d['name'] ?? '',
-      category: d['devicetype'] ?? '',
-      mac: d['deviceid'] ?? '',
-      homeId: d['homeid'] ?? '',
-      roomId: d['roomid'] ?? '',
-    )).toList();
-
-    // Merge with saved devices
-    final combinedDevices = [...hardcodedAsDevices, ...devices];
-
-    if (combinedDevices.isEmpty) {
+  Widget deviceList(width,height) {
+    if (devices.isEmpty) {
       return Center(
         child: TextWidget(
-          text: "No devices added yet.",
+          text: "No devices added yet. Click 'Add Device' to start.",
           color: Colors.grey,
         ),
       );
@@ -346,47 +261,46 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
       scrollDirection: Axis.horizontal,
       child: SingleChildScrollView(
         scrollDirection: Axis.vertical,
-        child: Container(
-          width: width,
-          child: DataTable(
-            showCheckboxColumn: false,
-            headingRowColor: MaterialStateProperty.all(Colors.transparent),
-            dataRowColor: MaterialStateProperty.all(Colors.transparent),
-            columnSpacing: 40,
-            horizontalMargin: 20,
-            headingTextStyle: const TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: Colors.black87,
-            ),
-            dataTextStyle: const TextStyle(
-              fontWeight: FontWeight.normal,
-              fontSize: 14,
-              color: Colors.black87,
-            ),
-            columns: const [
-              DataColumn(label: Text('S.No.')),
-              DataColumn(label: Text('Device Name')),
-              DataColumn(label: Text('Device Type')),
-            ],
-            rows: List.generate(combinedDevices.length, (index) {
-              final device = combinedDevices[index];
-
-              // Check if this device came from hardcoded list
-              final hardcoded = hardcodedDevices.firstWhere(
-                    (d) => d['deviceid'] == device.mac,
-                orElse: () => {},
-              );
-
-              return DataRow(
-                cells: [
-                  DataCell(Text("${index + 1}")),
-                  DataCell(Text(device.name)),
-                  DataCell(Text(device.category)),
-                ],
-              );
-            }),
+        child: DataTable(
+          showCheckboxColumn: false,
+          headingRowColor: MaterialStateProperty.all(Colors.transparent),
+          dataRowColor: MaterialStateProperty.all(Colors.transparent),
+          columnSpacing: 40,
+          horizontalMargin: 20,
+          headingTextStyle: const TextStyle(
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+            color: Colors.black87,
           ),
+          dataTextStyle: const TextStyle(
+            fontWeight: FontWeight.normal,
+            fontSize: 14,
+            color: Colors.black87,
+          ),
+          columns: const [
+            DataColumn(label: Text('S.No.')),
+            DataColumn(label: Text('Device Name')),
+            DataColumn(label: Text('Device Type')),
+            DataColumn(label: Text('Actions')), // New column for delete
+          ],
+          rows: List.generate(devices.length, (index) {
+            final device = devices[index];
+
+            return DataRow(
+              cells: [
+                DataCell(Text("${index + 1}")),
+                DataCell(Text(device.name)),
+                DataCell(Text(device.category)),
+                DataCell(
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () => _deleteDevice(device),
+                    tooltip: 'Delete Device',
+                  ),
+                ),
+              ],
+            );
+          }),
         ),
       ),
     );
@@ -418,13 +332,16 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
             double dialogHeight = 500; // adjust as needed
             double dialogWidth = 550;
 
+            // Check if any devices are available to add
+            final isListEmpty = availableDevicesForAdd.isEmpty;
+
             return Dialog(
               backgroundColor: Colors.transparent, // allow AnimatedContainer bg to show
               insetPadding: const EdgeInsets.all(16),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 300),
                 curve: Curves.easeInOut,
-                height: dialogHeight,
+                height: isListEmpty ? 300 : dialogHeight, // Shorter if no devices
                 width: dialogWidth,
                 decoration: BoxDecoration(
                   color: priBg,
@@ -455,25 +372,23 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
                   ),
                   body: Padding(
                     padding: const EdgeInsets.all(16.0),
-                    child: SingleChildScrollView(
+                    child: isListEmpty
+                        ? const Center(child: Text('All hardcoded devices have been added!'))
+                        : SingleChildScrollView(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const SizedBox(height: 20),
 
-                          // Device Name Field
-                          const Headingtextwidget(text1: "Device Name"),
+                          // Device Name Field (Dropdown)
+                          const Headingtextwidget(text1: "Device Name (Select to add)"),
                           const SizedBox(height: 10),
-                          deviceNameField(), // This will now show the dropdown
+                          deviceNameField(),
 
                           const SizedBox(height: 20),
-
-                          // Device Category Field
                           const Headingtextwidget(text1: "Device Category"),
                           const SizedBox(height: 10),
                           deviceCategoryField(),
-
-
                           const SizedBox(height: 30),
 
                           // Action Buttons
@@ -496,4 +411,130 @@ class _AdminTwxDashboardState extends State<AdminTwxDashboard> {
       },
     );
   }
+
+
+  // function (add,delete and list)
+
+  // full list of all available hardcoded devices
+  List<Map<String, String>> get _fullHardcodedDevices {
+    // Cast both lists and combine them to create a single source of truth for the dashboard logic
+    final allDevices = [
+      ...allHardcodedDevices.cast<Map<String, String>>(),
+      ...anotherHardcodedDevices.cast<Map<String, String>>(),
+    ];
+    return allDevices;
+  }
+
+  void _filterAvailableDevices(List<Device> loadedDevices) {
+    final savedMacs = loadedDevices.map((d) => d.mac).toSet();
+
+    // Filter the full list (both old and new devices) to find which devices haven't been saved yet
+    availableDevicesForAdd = allAvailableDevices // NOW USES CONSOLIDATED LIST
+        .where((d) => !savedMacs.contains(d['deviceid']))
+        .toList()
+        .cast<Map<String, String>>(); // Cast to match type
+  }
+
+  Future<void> _loadDevices() async {
+    setState(() {
+      loading = true;
+    });
+    final loadedDevices = await DeviceDataManager.loadDevices();
+
+    _filterAvailableDevices(loadedDevices);
+
+    setState(() {
+      devices = loadedDevices;
+      loading = false;
+    });
+  }
+
+  Future<void> _addDevice() async {
+    if (_selectedDevice == null || _selectedDevice!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a device.')),
+      );
+      return;
+    }
+    final deviceDetails = allAvailableDevices.firstWhere( // NOW USES CONSOLIDATED LIST
+          (d) => d['deviceid'] == _selectedDevice,
+      orElse: () => <String, String>{},
+    );
+
+    if (deviceDetails.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selected device not found in list.')),
+      );
+      return;
+    }
+
+    setState(() {
+      loading = true;
+    });
+
+    final newDevice = Device(
+      name: deviceDetails['name']!,
+      category: deviceDetails['devicetype']!,
+      mac: deviceDetails['deviceid']!,
+      homeId: deviceDetails['homeid']!,
+      roomId: deviceDetails['roomid']!,
+    );
+
+    setState(() {
+      devices.add(newDevice);
+      availableDevicesForAdd.removeWhere((d) => d['deviceid'] == _selectedDevice);
+      deviceNameCtrl.clear();
+      deviceCategoryCtrl.clear();
+      _selectedDevice = null;
+    });
+
+    await DeviceDataManager.saveDevices(devices);
+
+    if (mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Device added successfully!')),
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        loading = false; // ✅ hide loader
+      });
+    }
+  }
+
+// delete a device
+  Future<void> _deleteDevice(Device device) async {
+    setState(() {
+      loading = true; // ✅ show loader
+    });
+
+    setState(() {
+      devices.removeWhere((d) => d.mac == device.mac);
+      final deviceDetails = allAvailableDevices.firstWhere( // NOW USES CONSOLIDATED LIST
+            (d) => d['deviceid'] == device.mac,
+        orElse: () => <String, String>{},
+      );
+      if (deviceDetails.isNotEmpty &&
+          !availableDevicesForAdd.any((d) => d['deviceid'] == device.mac)) {
+        availableDevicesForAdd.add(deviceDetails);
+      }
+    });
+
+    await DeviceDataManager.saveDevices(devices);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${device.name} deleted successfully!')),
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        loading = false; // ✅ hide loader
+      });
+    }
+  }
+
 }
