@@ -3,8 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService {
-  static const String _baseUrl =
-      "https://overtureiot.broan-nutone.com/overturev2/api/v1/ciaq/oauth/token";
+  static const String _baseUrl = "https://overtureiot.broan-nutone.com/overturev2/api/v1/ciaq/oauth/token";
 
   // Login user
   Future<bool> loginUser(String username, String password) async {

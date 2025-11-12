@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:dfdevicewebview/component/add_device_comp.dart';
 import 'package:dfdevicewebview/constant.dart';
 import 'package:dfdevicewebview/model/device_selection.dart';
@@ -13,6 +14,9 @@ import 'package:dfdevicewebview/widget/text_widget.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:dfdevicewebview/model/device_data_manager.dart';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+
 
 class CustomerView extends StatefulWidget {
   final String? userEmail;
@@ -31,7 +35,6 @@ class _CustomerViewState extends State<CustomerView> {
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  bool loading = true;
   late List<bool> isExpandedList;
   Timer? _timer;
   String? apiUrl;
@@ -44,14 +47,16 @@ class _CustomerViewState extends State<CustomerView> {
   final Map<String, Timer> _deviceTimers = {};
   final Map<String, bool> deviceLoadingStates = {};
 
-
-
+  // NEW: State variable to store the token for dream-filler API
+  String? _dreamFillerToken;
 
 
   @override
   void initState() {
     super.initState();
-    _performLoginAndRefresh().then((_) {
+    // NEW: Get the dream-filler token immediately after the main login process
+    _performLoginAndRefresh().then((_) async {
+      await _getDreamFillerToken(); // Fetch dream-filler token
       _startPeriodicLogin();
     });
   }
@@ -81,9 +86,7 @@ class _CustomerViewState extends State<CustomerView> {
       backgroundColor: priBg,
       drawer: DrawerUtils(scaffoldKey: _scaffoldKey),
       appBar: appBar(),
-      body: loading
-          ? LoaderUtils().circularLoader()
-          : desktoptabViewbody(width, height),
+      body: desktoptabViewbody(width, height),
     );
   }
 
@@ -93,9 +96,7 @@ class _CustomerViewState extends State<CustomerView> {
       backgroundColor: priBg,
       drawer: DrawerUtils(scaffoldKey: _scaffoldKey),
       appBar: appBar(),
-      body: loading
-          ? LoaderUtils().circularLoader()
-          : desktoptabViewbody(width, height),
+      body:  desktoptabViewbody(width, height),
     );
   }
 
@@ -105,9 +106,7 @@ class _CustomerViewState extends State<CustomerView> {
       backgroundColor: priBg,
       drawer: DrawerUtils(scaffoldKey: _scaffoldKey),
       appBar: appBar(),
-      body: loading
-          ? LoaderUtils().circularLoader()
-          : desktoptabViewbody(width, height),
+      body: desktoptabViewbody(width, height),
     );
   }
 
@@ -204,13 +203,30 @@ class _CustomerViewState extends State<CustomerView> {
   Widget _buildDeviceSelector() {
     final width = MediaQuery.of(context).size.width;
     final isMobile = width < 600;
-    final deviceListContent = ListView.builder(
+
+    // Check if homeData is empty
+    final deviceListContent = homeData.isEmpty
+        ? Padding(
+      padding: const EdgeInsets.all(20.0),
+      child: Center(
+        child: Text(
+          'No devices available. Please add a device.',
+          style: TextStyle(
+            fontSize: isMobile ? 14 : 16,
+            color: Colors.grey,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    )
+        : ListView.builder(
       shrinkWrap: true,
       physics: const BouncingScrollPhysics(),
       itemCount: homeData.length,
       itemBuilder: (context, index) {
         final deviceItem = homeData[index];
-        final deviceName = deviceItem.device['devicename'] ?? "Unnamed Device";
+        final deviceName =
+            deviceItem.device['devicename'] ?? "Unnamed Device";
 
         return CheckboxListTile(
           dense: isMobile, // compact on mobile
@@ -236,27 +252,25 @@ class _CustomerViewState extends State<CustomerView> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.black12),
+          //  border: Border.all(color: Colors.black12),
         ),
-        // Use an ExpansionTile for the collapsible functionality
         child: Theme(
-          // Optional: Remove the divider line above and below the tile
           data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
           child: ExpansionTile(
-            initiallyExpanded: true, // Start open, change to false if you want it closed initially
-            tilePadding: EdgeInsets.symmetric(horizontal: isMobile ? 10 : 20, vertical: 0),
-            // Set the title directly without a Center widget to align it to the left
+            initiallyExpanded: true,
+            tilePadding:
+            EdgeInsets.symmetric(horizontal: isMobile ? 10 : 20, vertical: 0),
             title: Text(
-              'Select Devices', // Your button/title text
+              'Select Devices',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
-                color: Theme.of(context).primaryColor, // Use your app's primary color
+                color: Theme.of(context).primaryColor,
               ),
             ),
-            children:[
-              const Divider(height: 1, thickness: 1, color: Colors.black12), // Visual separator
+            children: [
+              const Divider(height: 1, thickness: 1, color: Colors.black12),
               Padding(
-                padding: const EdgeInsets.all(10), // The original padding you had
+                padding: const EdgeInsets.all(10),
                 child: deviceListContent,
               ),
             ],
@@ -494,28 +508,103 @@ class _CustomerViewState extends State<CustomerView> {
 
 
   // API
-  Future<void> _performLoginAndRefresh() async {
-    // Always use hardcoded credentials
-    const email = "testing23@mailinator.com";
-    const password = "Qwerty@123";
+  Future<bool> _performLoginAndRefresh() async {
+    var headers = {
+      'Authorization':
+      'Basic YnJvYW4tY2lhcS1hcHAuY2xpZW50LmU0OGJmY2U5YjA0NzQ1OWE4OGVjYzQyZGFlZGQ1M2UzOjdlZTc1NmJjY2QzYWUwMzFlZjUzZDFhOTM4ZWJmMDdmOTA1Zjg4MTllNzdmNzliZjAyNTc5NDUxNTk0MWVjNzA=',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    };
 
-    bool success = await _authService.loginUser(email, password);
-    if (success) {
-      print("✅ Login successful, fetching data...");
-      // This fetch uses the new, valid token immediately
-      await _fetchData();
-    } else {
-      print("❌ Login failed.");
-      // 💡 FIX: Ensure loading state is turned off on failure.
-      if (mounted) {
-        setState(() {
-          loading = false;
-        });
+    var body = {
+      "grant_type": "password",
+      "username": "testing23@mailinator.com",
+      "password": "Qwerty@123",
+    };
+
+    try {
+      var response = await http.post(
+        Uri.parse(
+            "https://overtureiot.broan-nutone.com/overturev2/api/v1/ciaq/oauth/token"),
+        headers: headers,
+        body: body,
+      );
+
+      if (response.statusCode == 200) {
+        var data = jsonDecode(response.body);
+        String accessToken = data['access_token'];
+        await _fetchData();
+        // Save token in local storage
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        await prefs.setString('access_token', accessToken);
+
+        return true;
+      } else {
+        debugPrint("Login failed: ${response.statusCode} - ${response.body}");
+        return false;
       }
+    } catch (e) {
+      debugPrint("Error: $e");
+      return false;
     }
   }
 
+  // NEW: Function to get token for dream-filler API
+    Future<void> _getDreamFillerToken() async {
+    // ✅ Correct way: separate client_id and client_secret, then Base64 encode
+    const String clientId = 'df-device-6e3d05c5-66ab-4eaf-b31c-5b398376c38f';
+    const String clientSecret = 'fbc1d87e36f3abcef83d6a8aef26e0eba819d40adc06034acb1b315d77e73c6f';
+
+    // Encode properly as "clientId:clientSecret"
+    final String correctBase64Auth =
+    base64Encode(utf8.encode('$clientId:$clientSecret'));
+
+    final headers = {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': 'Basic $correctBase64Auth',
+    };
+
+    // 💡 Encode body for x-www-form-urlencoded
+    final Map<String, String> bodyMap = {
+      'grant_type': 'password',
+      'username': 'risb@gmail.com',
+      'password': 'Qwerty@123',
+    };
+
+    final encodedBody = bodyMap.entries
+        .map((e) => '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+        .join('&');
+
+    try {
+      print("🌐 Requesting Dream-Filler token...");
+
+      final response = await http.post(
+        Uri.parse('https://iotdevice.dream-filler.com/api/auth/token'),
+        headers: headers,
+        body: encodedBody,
+      );
+
+      print("📥 Response status: ${response.statusCode}");
+      print("📦 Raw response body: ${response.body}");
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        _dreamFillerToken = data['accessToken'];
+        print("✅ Dream-Filler Token obtained successfully.");
+      } else {
+        print("❌ Dream-Filler Token failed: ${response.statusCode}");
+        print("Reason: ${response.reasonPhrase}");
+        _dreamFillerToken = null;
+      }
+    } catch (e, stack) {
+      print("⚠️ Error getting Dream-Filler Token: $e");
+      print("📚 StackTrace: $stack");
+      _dreamFillerToken = null;
+    }
+  }
+
+
   // NEW: Function to fetch data for a single device without triggering the main screen loader
+// NEW: Function to fetch data for a single device without triggering the main screen loader
   Future<void> _fetchAndDisplayData(DeviceSelection selectedDevice) async {
     if (!mounted) return;
 
@@ -535,8 +624,11 @@ class _CustomerViewState extends State<CustomerView> {
 
     // Determine API URL (using constants defined in your code)
     String? currentApiUrl;
+    bool isDreamFillerDevice = false;
+
     if (anotherHardcodedDevices.any((d) => d['deviceid'] == deviceId)) {
       currentApiUrl = '$newApiUrl$deviceId';
+      isDreamFillerDevice = true;
     } else {
       currentApiUrl = '$existingApiUrl$deviceId';
     }
@@ -544,14 +636,63 @@ class _CustomerViewState extends State<CustomerView> {
     final Map<String, String>? headers = {'home_id': homeId};
 
     try {
-      final sensorDataResponse = await _apiClient.get(
-          currentApiUrl!,
-          customHeaders: headers);
+      dynamic sensorDataResponse;
+      if (isDreamFillerDevice) {
+        // Use the new token and a dedicated GET function that accepts a token
+        if (_dreamFillerToken == null) {
+          print("⚠️ Dream-Filler Token is missing. Re-attempting fetch.");
+          await _getDreamFillerToken();
+          if (_dreamFillerToken == null) {
+            throw Exception("Dream-Filler Token is still null after re-attempt.");
+          }
+        }
+        sensorDataResponse = await _apiClient.getWithToken(
+            currentApiUrl!,
+            _dreamFillerToken!,
+            customHeaders: headers);
+      } else {
+        // Use the existing client method which relies on the stored token (OvertureIOT)
+        sensorDataResponse = await _apiClient.get(
+            currentApiUrl!,
+            customHeaders: headers);
+      }
+
 
       if (!mounted) return;
 
-      final deviceDetails = sensorDataResponse['deviceDetailsDTO'];
-      final isConnected = deviceDetails['isConnected'];
+      Map<String, dynamic> deviceDetails;
+      bool isConnected = true; // Default assumption for connected state
+
+      if (isDreamFillerDevice) {
+        // --- DREAM-FILLER RESPONSE HANDLING ---
+        // Response is a List: [ { ... sensor data ... } ]
+        if (sensorDataResponse is List && sensorDataResponse.isNotEmpty) {
+          final dataMap = sensorDataResponse[0];
+
+          // Map Dream-Filler keys to the structure expected by the rest of the code
+          deviceDetails = {
+            // Assume connected if data successfully retrieved
+            'isConnected': true,
+            'iaqindex': dataMap['aqi'],
+            'temperature': dataMap['temperature'],
+            'co2': dataMap['co2'],
+            'tvoc': dataMap['tvoc'],
+            'pm2_5': dataMap['pm25'], // Key difference: 'pm25' in JSON, 'pm2_5' in display
+            'humidity': dataMap['humidity'],
+          };
+          isConnected = deviceDetails['isConnected'];
+        } else {
+          // Handle case where list is empty or invalid
+          throw Exception("Invalid or empty Dream-Filler sensor data response.");
+        }
+      } else {
+        // --- OVERTUREIOT RESPONSE HANDLING ---
+        // Response is a Map: { "deviceDetailsDTO": { ... } }
+        deviceDetails = sensorDataResponse['deviceDetailsDTO'];
+        isConnected = deviceDetails['isConnected'];
+      }
+
+
       final deviceName = selectedDevice.device['devicename'];
 
       final updatedDevice = {
@@ -588,6 +729,12 @@ class _CustomerViewState extends State<CustomerView> {
           if (index != -1) {
             displayedDevices[index]['status'] = 'Data Error';
             displayedDevices[index]['statusColor'] = Colors.red;
+            displayedDevices[index]['iaqindex'] = 'Error';
+            displayedDevices[index]['temperature'] = 'Error';
+            displayedDevices[index]['co2'] = 'Error';
+            displayedDevices[index]['tvoc'] = 'Error';
+            displayedDevices[index]['pm2_5'] = 'Error';
+            displayedDevices[index]['humidity'] = 'Error';
           }
         });
       }
@@ -599,36 +746,31 @@ class _CustomerViewState extends State<CustomerView> {
       }
     }
   }
-
   Future<void> _fetchData() async {
     if (!mounted) return;
 
-    // 1. CLEAR STATE AND STOP ALL TIMERS
-    setState(() {
-      loading = true;
-      homeData = [];
-      isExpandedList = [];
-      displayedDevices = [];
-      homeNames = {};
-      deviceLoadingStates.clear();
+    // Stop and clear all individual device timers for removed devices
+    final existingDeviceIds = homeData.map((d) => d.device['deviceId'] ?? '').toSet();
 
+    _deviceTimers.forEach((deviceId, timer) {
+      if (!existingDeviceIds.contains(deviceId)) {
+        timer.cancel();
+        _deviceTimers.remove(deviceId);
+        displayedDevices.removeWhere((d) => d['deviceId'] == deviceId);
+      }
     });
-
-    // Stop and clear all individual device timers (Crucial for manual refresh)
-    _deviceTimers.forEach((key, timer) => timer.cancel());
-    _deviceTimers.clear();
 
     final Set<String> processedDeviceIds = {};
     final List<DeviceSelection> fetchedHomeData = [];
 
-    // 1. Map home names from the hardcoded lists (unchanged)
+    // Map home names from hardcoded list
     for (var d in allAvailableDevices) {
       final homeId = d['homeid']!;
       final homeName = d['homename']!;
       homeNames[homeId] = homeName;
     }
 
-    // 2. Load locally saved devices from AdminTwxDashboard
+    // Load locally saved devices
     try {
       final localDevices = await DeviceDataManager.loadDevices();
 
@@ -637,38 +779,51 @@ class _CustomerViewState extends State<CustomerView> {
         final deviceId = deviceMap['mac'] ?? 'unknown';
 
         if (deviceId != 'unknown' && processedDeviceIds.add(deviceId)) {
-          print("💾 Adding local device: $deviceId");
-          // FIX: isSelected is set to false (default) to prevent auto-selection
-          fetchedHomeData.add(DeviceSelection(device: {
-            "devicename": deviceMap['name'] ?? deviceId,
-            "homeid": deviceMap['homeId'] ?? 'Local',
-            "roomid": deviceMap['roomId']?.toString() ?? 'N/A',
-            "deviceId": deviceId,
-          }, isSelected: false)); // Devices are NOT automatically selected
+          // Preserve previous selection state if exists
+          final previous = homeData.firstWhere(
+                  (d) => d.device['deviceId'] == deviceId,
+              orElse: () => DeviceSelection(device: {}, isSelected: false));
+
+          fetchedHomeData.add(DeviceSelection(
+            device: {
+              "devicename": deviceMap['name'] ?? deviceId,
+              "homeid": deviceMap['homeId'] ?? 'Local',
+              "roomid": deviceMap['roomId']?.toString() ?? 'N/A',
+              "deviceId": deviceId,
+            },
+            isSelected: previous.isSelected, // Preserve checkbox state
+          ));
         }
       }
     } catch (e) {
       print("❌ Error loading local devices: $e");
     }
 
+    if (mounted) {
+      setState(() {
+        homeData = List.from(fetchedHomeData);
+        isExpandedList = List.generate(homeData.length, (index) => false);
+      });
 
-    try {
-      // API call block is now empty (removed)
-    } catch (e) {
-      print("❌ Error fetching data: $e");
-    } finally {
-      if (mounted) {
-        // Update the state with all found devices
-        setState(() {
-          homeData = List.from(fetchedHomeData);
-          isExpandedList = List.generate(homeData.length, (index) => false);
-          loading = false; // Hide main loader
-        });
+      // Re-start timers for devices that are still selected
+      for (var deviceSelection in homeData) {
+        if (deviceSelection.isSelected) {
+          final deviceId = deviceSelection.device['deviceId'];
+          // Cancel existing timer if any
+          _deviceTimers[deviceId]?.cancel();
 
-        // The loop to auto-select/auto-start timers is REMOVED, respecting the "not always selected" requirement.
+          // Start a new 5-second timer
+          _deviceTimers[deviceId] = Timer.periodic(const Duration(seconds: 5), (timer) {
+            _fetchAndDisplayData(deviceSelection);
+          });
+
+          // Fetch immediately
+          _fetchAndDisplayData(deviceSelection);
+        }
       }
-      print("✅ Final homeData count: ${homeData.length}");
     }
+
+    print("✅ Final homeData count: ${homeData.length}");
   }
 
   Future<void> _onDeviceSelected(DeviceSelection selectedDevice, bool isSelected) async {
@@ -677,6 +832,9 @@ class _CustomerViewState extends State<CustomerView> {
     });
 
     final deviceId = selectedDevice.device['deviceId'];
+    // Cancel any existing timer for this device
+    _deviceTimers[deviceId]?.cancel();
+    _deviceTimers.remove(deviceId);
 
     if (isSelected) {
       // 1. Fetch data immediately

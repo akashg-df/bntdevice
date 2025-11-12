@@ -27,6 +27,27 @@ class ApiClient {
     }
   }
 
+  // NEW: Function to perform a GET request using a provided token (This is the missing method)
+  Future<dynamic> getWithToken(String url, String token, {Map<String, String>? customHeaders}) async {
+    if (token.isEmpty) {
+      throw Exception("Provided token is empty.");
+    }
+
+    var headers = {
+      'Authorization': 'Bearer $token',
+      'Content-Type': 'application/json',
+      if (customHeaders != null) ...customHeaders,
+    };
+
+    final response = await http.get(Uri.parse(url), headers: headers);
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception("Failed GET with custom token: ${response.statusCode} - ${response.body}");
+    }
+  }
+
   Future<dynamic> post(String url, Map<String, dynamic> body) async {
     String? token = await _authService.getToken();
     if (token == null) {

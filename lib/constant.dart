@@ -2,7 +2,7 @@
 
 // Base URL
 //DF
-const String newApiUrl = 'https://iot.dream-nutone.com/overturev2/api/v1/ciaq/thingworx/user/device/';
+const String newApiUrl = 'https://iotdevice.dream-filler.com/api/device/telemetry/';
 
 //BNT
 const String existingApiUrl = 'https://overtureiot.broan-nutone.com/overturev2/api/v1/ciaq/thingworx/user/device/';
@@ -52,8 +52,8 @@ final allHardcodedDevices = [
 //DF device
 final anotherHardcodedDevices =[
   {
-    "deviceid": "RS21X0870",
-    "name": "RS21X0870",
+    "deviceid": "DREAM_003",
+    "name": "DREAM_003",
     "homeid": "SH#17562538046773024",
     "homename": "Home C",
     "roomid": "RM#1003",

@@ -4,6 +4,7 @@ import 'package:dfdevicewebview/component/login_comp.dart';
 import 'package:dfdevicewebview/responsive.dart';
 import 'package:dfdevicewebview/typography.dart';
 import 'package:dfdevicewebview/utli/loader_utils.dart';
+import 'package:dfdevicewebview/webview/admin_twx_dashboard.dart';
 import 'package:dfdevicewebview/webview/customer_view.dart';
 import 'package:dfdevicewebview/widget/fieldheading_widget.dart';
 import 'package:dfdevicewebview/widget/text_field_widget.dart';
@@ -165,7 +166,7 @@ class _LoginViewState extends StateMVC<LoginView> {
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                        builder: (BuildContext context) => CustomerView( ),
+                        builder: (BuildContext context) => AdminTwxDashboard(),
                       ),
                     );
                   } else {

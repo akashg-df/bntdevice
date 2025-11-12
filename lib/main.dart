@@ -1,4 +1,5 @@
 import 'package:dfdevicewebview/login.dart';
+import 'package:dfdevicewebview/webview/admin_twx_dashboard.dart';
 import 'package:dfdevicewebview/webview/customer_view.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -28,7 +29,7 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
       ),
       // If token exists → go to CustomerView, else → LoginView
-      home: initialRoute == "login" ? LoginView() : CustomerView(),
+      home: initialRoute == "login" ? LoginView() : AdminTwxDashboard(),
     );
   }
 }

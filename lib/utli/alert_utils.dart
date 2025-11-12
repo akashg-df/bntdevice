@@ -63,11 +63,11 @@ class AlertUtils {
   }
 
   infoAlert(
-    context,
-    text,
-    onConfirmBtnTap,
-  ) {
-    return QuickAlert.show(
+      BuildContext context,
+      String text,
+      VoidCallback onConfirmBtnTap,
+      ) {
+    QuickAlert.show(
       width: 350,
       barrierDismissible: false,
       context: context,
